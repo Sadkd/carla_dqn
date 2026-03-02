@@ -1,0 +1,10 @@
+venv/
+carla_dqn/
+__pycache__/
+*.pyc
+.env
+.vscode/
+.idea/
+*.pth
+*.ckpt
+*.log
