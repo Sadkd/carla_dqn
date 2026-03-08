@@ -1,4 +1,11 @@
-# dqn_agent.py
+# dqn_agent_dqn.py
+# Standard Deep Q-Network (DQN) implementation
+# Identical architecture and hyperparameters to dqn_agent.py (Double DQN)
+# The ONLY difference is in train_step():
+#   DDQN: policy net selects action, target net evaluates it (decoupled)
+#   DQN:  target net both selects AND evaluates the best next action (coupled)
+# All other components — network, buffer, optimizer, scheduler — are unchanged.
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -7,7 +14,9 @@ import random
 from collections import deque
 
 # ==============================================
-# Dual-Stream Double DQN Network
+# Dual-Stream DQN Network
+# Identical to DDQN — architecture is not what
+# differs between DQN and Double DQN
 # ==============================================
 class DQNNet(nn.Module):
     def __init__(self, input_channels=16, num_actions=5, vector_size=2):
@@ -55,8 +64,10 @@ class DQNNet(nn.Module):
         combined        = torch.cat([visual_features, vector_features], dim=1)
         return self.fc(combined)
 
+
 # ==============================================
 # N-Step Return Buffer
+# Identical to DDQN
 # ==============================================
 class NStepBuffer:
     def __init__(self, n_steps=3, gamma=0.99):
@@ -84,13 +95,14 @@ class NStepBuffer:
     def clear(self):
         self.buffer.clear()
 
+
 # ==============================================
-# Double DQN Agent
+# Standard DQN Agent
 # ==============================================
 class DQNAgent:
     def __init__(self, device='cpu', frame_stack=4, num_actions=5,
                  target_update_freq=2000, n_steps=3, gamma=0.99,
-                 total_train_steps=120000):
+                 total_train_steps=1200000):
         self.device             = device
         self.frame_stack        = frame_stack
         self.num_actions        = num_actions
@@ -122,9 +134,7 @@ class DQNAgent:
             self.policy_net.parameters(), lr=1e-4
         )
 
-        # CosineAnnealingLR — decays smoothly over full training
-        # prevents the LR collapsing to near-zero too early
-        # which was causing near-zero learning by episode 342
+        # CosineAnnealingLR — identical to DDQN
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             self.optimizer,
             T_max=total_train_steps,
@@ -133,7 +143,7 @@ class DQNAgent:
 
         self.epsilon = 1.0
 
-        # N-step buffer
+        # N-step buffer — identical to DDQN
         self.n_step_buffer = NStepBuffer(n_steps=n_steps, gamma=gamma)
 
         # Pre-allocated GPU tensors for inference
@@ -212,39 +222,57 @@ class DQNAgent:
                 next_visual, next_vector, dones_t)
 
     def train_step(self, batch, gamma=0.99):
+        """
+        Standard DQN target — the key difference from Double DQN:
+
+        DDQN:
+            next_actions = policy_net(s').argmax()       # policy net SELECTS
+            next_q       = target_net(s')[next_actions]  # target net EVALUATES
+            → decoupled: selection and evaluation use different networks
+            → reduces overestimation bias
+
+        DQN (this implementation):
+            next_q = target_net(s').max()                # target net SELECTS AND EVALUATES
+            → coupled: same network does both jobs
+            → prone to overestimation because upward bias in selection
+              compounds with upward bias in evaluation
+        """
         (visual, vector, actions, rewards,
          next_visual, next_vector, dones) = self._prepare_batch(batch)
 
-        # Current Q values
+        # Current Q values — identical to DDQN
         current_q = self.policy_net(visual, vector).gather(1, actions).squeeze(1)
 
-        # Double DQN target with n-step gamma
+        # ── Standard DQN target ──────────────────────────────────
+        # target net selects AND evaluates the best next action
+        # this is the ONLY line that differs from Double DQN
         with torch.no_grad():
-            next_actions = self.policy_net(next_visual, next_vector).argmax(1, keepdim=True)
-            next_q       = self.target_net(next_visual, next_vector).gather(1, next_actions).squeeze(1)
+            next_q = self.target_net(next_visual, next_vector).max(1)[0]
+        # ────────────────────────────────────────────────────────
 
+        # n-step discount — identical to DDQN
         gamma_n  = gamma ** self.n_steps
         target_q = rewards + gamma_n * next_q * (1 - dones)
 
-        # Huber loss
+        # Huber loss — identical to DDQN
         loss = F.smooth_l1_loss(current_q, target_q)
 
         self.optimizer.zero_grad(set_to_none=True)
         loss.backward()
 
-        # Gradient clipping — reduced to 1.0 (original DQN paper value)
+        # Gradient clipping — identical to DDQN
         torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), 1.0)
 
         self.optimizer.step()
         self.scheduler.step()
 
-        # Sync target network
+        # Sync target network — identical to DDQN
         self.train_steps += 1
         if self.train_steps % self.target_update_freq == 0:
             self.target_net.load_state_dict(self.policy_net.state_dict())
             current_lr = self.optimizer.param_groups[0]['lr']
             print(
-                f"[DDQN] Target synced at step {self.train_steps} "
+                f"[DQN] Target synced at step {self.train_steps} "
                 f"| LR: {current_lr:.2e}"
             )
 

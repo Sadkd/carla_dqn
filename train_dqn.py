@@ -1,4 +1,12 @@
-# train.py
+# train_dqn.py
+# Standard DQN training script
+# Identical to train.py (Double DQN) in every way except:
+#   - imports DQNAgent from dqn_agent_dqn.py
+#   - saves logs    to  logs_dqn/
+#   - saves checkpoints to checkpoints_dqn/
+# This ensures DQN and DDQN results are stored separately
+# and can be compared directly using visualize_results.py
+
 import os
 import random
 import numpy as np
@@ -6,7 +14,7 @@ import torch
 import torch.backends.cudnn as cudnn
 from collections import deque
 from carla_env import CarlaEnv
-from dqn_agent import DQNAgent
+from dqn_agent_dqn import DQNAgent      # ← only import differs from train.py
 
 # ==============================================
 # GPU Setup
@@ -24,11 +32,11 @@ print(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f}
 print("=" * 60)
 
 # ==============================================
-# Hyperparameters
+# Hyperparameters — identical to DDQN train.py
 # ==============================================
 NUM_EPISODES       = 2000
 MAX_STEPS          = 300
-BATCH_SIZE         = 32     # reduced from 64 → faster per batch
+BATCH_SIZE         = 32
 GAMMA              = 0.99
 EPS_START          = 1.0
 EPS_END            = 0.05
@@ -38,19 +46,20 @@ TARGET_UPDATE_FREQ = 2000
 MIN_BUFFER_SIZE    = 1000
 MAX_BUFFER_SIZE    = 100000
 NUM_ACTIONS        = 5
-TRAIN_FREQ         = 2      # reduced from 4 → halves gradient computation
+TRAIN_FREQ         = 2
 N_STEPS            = 3
 
+# resume training at checkpoint ep1000
+# Resume training
+RESUME_FROM    = "checkpoints_dqn/dqn_carla_ep1000.pth"
+RESUME_EPISODE = 1000
 
-# resume training
-RESUME_FROM    = "checkpoints/ddqn_carla_ep800.pth"
-RESUME_EPISODE = 800
-
-
+# Separate output directories so DQN results don't overwrite DDQN results
+LOG_DIR        = "logs_dqn"
+CHECKPOINT_DIR = "checkpoints_dqn"
 
 # Total expected train steps — used for CosineAnnealingLR
-# Episodes × avg steps per episode × train freq
-TOTAL_TRAIN_STEPS  = NUM_EPISODES * MAX_STEPS * TRAIN_FREQ  # 1,200,000
+TOTAL_TRAIN_STEPS = NUM_EPISODES * MAX_STEPS * TRAIN_FREQ  # 1,200,000
 
 # ==============================================
 # Initialize environment and agent
@@ -66,6 +75,7 @@ agent = DQNAgent(
     total_train_steps=TOTAL_TRAIN_STEPS
 )
 
+print(f"Algorithm:         Standard DQN")
 print(f"Episodes:          {NUM_EPISODES} | Max Steps: {MAX_STEPS}")
 print(f"Batch size:        {BATCH_SIZE}   | Train freq: {TRAIN_FREQ}x per step")
 print(f"Epsilon:           {EPS_START} → {EPS_END} (decay={EPS_DECAY})")
@@ -74,6 +84,8 @@ print(f"N-step returns:    {N_STEPS} steps")
 print(f"Target sync:       every {TARGET_UPDATE_FREQ} steps")
 print(f"Total train steps: {TOTAL_TRAIN_STEPS:,}")
 print(f"LR schedule:       CosineAnnealing 1e-4 → 1e-5 over {TOTAL_TRAIN_STEPS:,} steps")
+print(f"Log dir:           {LOG_DIR}/")
+print(f"Checkpoint dir:    {CHECKPOINT_DIR}/")
 print("=" * 60)
 
 # ── Resume from checkpoint ──────────────────────────────────
@@ -89,8 +101,9 @@ print(f"  Epsilon:         {agent.epsilon:.4f}")
 print("=" * 60)
 # ────────────────────────────────────────────────────────────
 
-## Replay buffer
-# replay_buffer = deque(maxlen=MAX_BUFFER_SIZE)
+
+# Replay buffer
+replay_buffer = deque(maxlen=MAX_BUFFER_SIZE)
 
 # # Logs
 # rewards_log        = []
@@ -103,9 +116,6 @@ print("=" * 60)
 # epsilon_log        = []
 
 # resume training
-# Replay buffer
-replay_buffer = deque(maxlen=MAX_BUFFER_SIZE)
-
 # Load existing logs up to resume point
 def load_log(path, max_ep):
     if os.path.exists(path):
@@ -113,21 +123,22 @@ def load_log(path, max_ep):
         return data[:max_ep]
     return []
 
-rewards_log        = load_log("logs/rewards.npy",        RESUME_EPISODE)
-collision_log      = load_log("logs/collision_rate.npy", RESUME_EPISODE)
-episode_length_log = load_log("logs/episode_length.npy", RESUME_EPISODE)
-avg_speed_log      = load_log("logs/avg_speed.npy",      RESUME_EPISODE)
-avg_lane_dev_log   = load_log("logs/avg_lane_dev.npy",   RESUME_EPISODE)
-avg_loss_log       = load_log("logs/avg_loss.npy",       RESUME_EPISODE)
-mean_max_q_log     = load_log("logs/mean_max_q.npy",     RESUME_EPISODE)
-epsilon_log        = load_log("logs/epsilon.npy",        RESUME_EPISODE)
+rewards_log        = load_log(f"{LOG_DIR}/rewards.npy",        RESUME_EPISODE)
+collision_log      = load_log(f"{LOG_DIR}/collision_rate.npy", RESUME_EPISODE)
+episode_length_log = load_log(f"{LOG_DIR}/episode_length.npy", RESUME_EPISODE)
+avg_speed_log      = load_log(f"{LOG_DIR}/avg_speed.npy",      RESUME_EPISODE)
+avg_lane_dev_log   = load_log(f"{LOG_DIR}/avg_lane_dev.npy",   RESUME_EPISODE)
+avg_loss_log       = load_log(f"{LOG_DIR}/avg_loss.npy",       RESUME_EPISODE)
+mean_max_q_log     = load_log(f"{LOG_DIR}/mean_max_q.npy",     RESUME_EPISODE)
+epsilon_log        = load_log(f"{LOG_DIR}/epsilon.npy",        RESUME_EPISODE)
 
 print(f"Loaded {len(rewards_log)} episodes from existing logs")
 
 # ==============================================
-# Training loop
+# Training loop — identical to train.py
 # ==============================================
-for episode in range(RESUME_EPISODE, NUM_EPISODES):
+# for episode in range(NUM_EPISODES):                      # normal training
+for episode in range(RESUME_EPISODE, NUM_EPISODES):        # to resume training
     state = env.reset()
 
     episode_reward = 0
@@ -207,8 +218,7 @@ for episode in range(RESUME_EPISODE, NUM_EPISODES):
 
     # Checkpoint every 200 episodes
     if (episode + 1) % 200 == 0:
-        import os
-        os.makedirs("checkpoints", exist_ok=True)
+        os.makedirs(CHECKPOINT_DIR, exist_ok=True)
         torch.save({
             "model_state_dict":        agent.policy_net.state_dict(),
             "target_model_state_dict": agent.target_net.state_dict(),
@@ -216,7 +226,7 @@ for episode in range(RESUME_EPISODE, NUM_EPISODES):
             "scheduler_state_dict":    agent.scheduler.state_dict(),
             "epsilon":                 agent.epsilon,
             "episode":                 episode,
-        }, f"checkpoints/ddqn_carla_ep{episode+1}.pth")
+        }, f"{CHECKPOINT_DIR}/dqn_carla_ep{episode+1}.pth")
 
         allocated = torch.cuda.memory_allocated(0) / 1e9
         reserved  = torch.cuda.memory_reserved(0)  / 1e9
@@ -226,20 +236,19 @@ for episode in range(RESUME_EPISODE, NUM_EPISODES):
         )
 
 # ==============================================
-# Save all logs
+# Save all logs to logs_dqn/
 # ==============================================
-import os
-os.makedirs("logs",        exist_ok=True)
-os.makedirs("checkpoints", exist_ok=True)
+os.makedirs(LOG_DIR,        exist_ok=True)
+os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
-np.save("logs/rewards.npy",        rewards_log)
-np.save("logs/collision_rate.npy", collision_log)
-np.save("logs/episode_length.npy", episode_length_log)
-np.save("logs/avg_speed.npy",      avg_speed_log)
-np.save("logs/avg_lane_dev.npy",   avg_lane_dev_log)
-np.save("logs/avg_loss.npy",       avg_loss_log)
-np.save("logs/mean_max_q.npy",     mean_max_q_log)
-np.save("logs/epsilon.npy",        epsilon_log)
+np.save(f"{LOG_DIR}/rewards.npy",        rewards_log)
+np.save(f"{LOG_DIR}/collision_rate.npy", collision_log)
+np.save(f"{LOG_DIR}/episode_length.npy", episode_length_log)
+np.save(f"{LOG_DIR}/avg_speed.npy",      avg_speed_log)
+np.save(f"{LOG_DIR}/avg_lane_dev.npy",   avg_lane_dev_log)
+np.save(f"{LOG_DIR}/avg_loss.npy",       avg_loss_log)
+np.save(f"{LOG_DIR}/mean_max_q.npy",     mean_max_q_log)
+np.save(f"{LOG_DIR}/epsilon.npy",        epsilon_log)
 
 torch.save({
     "model_state_dict":        agent.policy_net.state_dict(),
@@ -248,10 +257,10 @@ torch.save({
     "scheduler_state_dict":    agent.scheduler.state_dict(),
     "epsilon":                 agent.epsilon,
     "episode":                 NUM_EPISODES,
-}, "checkpoints/ddqn_carla_final.pth")
+}, f"{CHECKPOINT_DIR}/dqn_carla_final.pth")
 
 print("=" * 60)
-print("Training complete!")
+print("Training complete! — Standard DQN")
 print(f"Avg Reward (all):        {np.mean(rewards_log):.2f}")
 print(f"Avg Reward (last 100):   {np.mean(rewards_log[-100:]):.2f}")
 print(f"Avg Survival (last 100): {np.mean(episode_length_log[-100:]):.1f} steps")
