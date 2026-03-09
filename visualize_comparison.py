@@ -8,19 +8,25 @@ Usage:
 Expects:
     logs/        — DDQN logs (from train.py)
     logs_dqn/    — DQN  logs (from train_dqn.py)
+
+Note: Compares the last 1000 episodes of each algorithm (episodes 1000-2000),
+      representing the mature policy phase of both runs.
 """
 import numpy as np
 import matplotlib.pyplot as plt
 import os
 
 # ── Config ───────────────────────────────────────────────────
-DDQN_DIR = "logs"
-DQN_DIR  = "logs_dqn"
-OUTPUT   = "logs/comparison_dqn_vs_ddqn.png"
+DDQN_DIR       = "logs"
+DQN_DIR        = "logs_dqn"
+OUTPUT         = "logs/comparison_dqn_vs_ddqn.png"
+KEEP_LAST      = 1000
+EPISODE_OFFSET = 1000   # x-axis starts at 1000 to reflect true episode numbers
 
 DDQN_COLOR = "steelblue"
 DQN_COLOR  = "tomato"
 
+# ── Helpers ──────────────────────────────────────────────────
 def moving_average(data, window=50):
     return [np.mean(data[max(0, i - window):i + 1]) for i in range(len(data))]
 
@@ -32,17 +38,21 @@ def load(directory, filename):
 
 def plot_metric(ax, ddqn_data, dqn_data, ylabel, title, window=50,
                 hline=None, hline_label=None):
-    episodes = range(len(ddqn_data)) if ddqn_data is not None else range(len(dqn_data))
-
+    """
+    Plot both algorithms on the same axes with x-axis starting at
+    EPISODE_OFFSET so labels correctly show episodes 1000-2000.
+    """
     if ddqn_data is not None:
-        ax.plot(ddqn_data, alpha=0.15, linewidth=0.5, color=DDQN_COLOR)
-        ax.plot(moving_average(ddqn_data, window), linewidth=2,
+        x = range(EPISODE_OFFSET, EPISODE_OFFSET + len(ddqn_data))
+        ax.plot(x, ddqn_data, alpha=0.15, linewidth=0.5, color=DDQN_COLOR)
+        ax.plot(x, moving_average(ddqn_data, window), linewidth=2,
                 color=DDQN_COLOR, label=f"DDQN MA({window})")
 
     if dqn_data is not None:
-        ax.plot(dqn_data, alpha=0.15, linewidth=0.5, color=DQN_COLOR)
-        ax.plot(moving_average(dqn_data, window), linewidth=2,
-                color=DQN_COLOR,  label=f"DQN  MA({window})")
+        x = range(EPISODE_OFFSET, EPISODE_OFFSET + len(dqn_data))
+        ax.plot(x, dqn_data, alpha=0.15, linewidth=0.5, color=DQN_COLOR)
+        ax.plot(x, moving_average(dqn_data, window), linewidth=2,
+                color=DQN_COLOR, label=f"DQN  MA({window})")
 
     if hline is not None:
         ax.axhline(hline, color="blue", linestyle="--",
@@ -56,7 +66,7 @@ def plot_metric(ax, ddqn_data, dqn_data, ylabel, title, window=50,
 
 # ── Load data ────────────────────────────────────────────────
 print("=" * 60)
-print("DQN vs DDQN — Comparison")
+print("DQN vs DDQN — Comparison (Episodes 1000-2000)")
 print("=" * 60)
 
 ddqn_rewards   = load(DDQN_DIR, "rewards.npy")
@@ -84,10 +94,25 @@ if ddqn_rewards is not None:
 if dqn_rewards is not None:
     print(f"DQN:  {len(dqn_rewards)} episodes loaded from {DQN_DIR}/")
 
+# ── Keep last 1000 episodes of each ──────────────────────────
+# Both algorithms are compared over episodes 1000-2000,
+# representing the mature exploitation phase of each run.
+ddqn_rewards   = ddqn_rewards[-KEEP_LAST:]   if ddqn_rewards   is not None else None
+ddqn_collision = ddqn_collision[-KEEP_LAST:] if ddqn_collision is not None else None
+ddqn_lengths   = ddqn_lengths[-KEEP_LAST:]   if ddqn_lengths   is not None else None
+ddqn_speeds    = ddqn_speeds[-KEEP_LAST:]    if ddqn_speeds    is not None else None
+ddqn_lane      = ddqn_lane[-KEEP_LAST:]      if ddqn_lane      is not None else None
+ddqn_loss      = ddqn_loss[-KEEP_LAST:]      if ddqn_loss      is not None else None
+ddqn_q         = ddqn_q[-KEEP_LAST:]         if ddqn_q         is not None else None
+
+print(f"Comparing last {KEEP_LAST} episodes for both algorithms (ep 1000-2000)")
+
 # ── Plot ─────────────────────────────────────────────────────
 fig, axes = plt.subplots(4, 2, figsize=(18, 22))
-fig.suptitle("DQN vs Double DQN — Training Comparison\nCARLA Autonomous Driving",
-             fontsize=16, fontweight="bold", y=0.99)
+fig.suptitle(
+    "DQN vs Double DQN — Training Comparison (Episodes 1000-2000)\nCARLA Autonomous Driving",
+    fontsize=16, fontweight="bold", y=0.99
+)
 
 # 1. Reward progression
 plot_metric(axes[0, 0], ddqn_rewards, dqn_rewards,
@@ -101,13 +126,13 @@ if ddqn_rewards is not None:
     ax2.axvline(np.mean(ddqn_rewards), color=DDQN_COLOR,
                 linestyle="--", linewidth=2)
 if dqn_rewards is not None:
-    ax2.hist(dqn_rewards,  bins=50, alpha=0.5, color=DQN_COLOR,
-             label=f"DQN  (mean={np.mean(dqn_rewards):.0f})",  edgecolor="none")
+    ax2.hist(dqn_rewards, bins=50, alpha=0.5, color=DQN_COLOR,
+             label=f"DQN  (mean={np.mean(dqn_rewards):.0f})", edgecolor="none")
     ax2.axvline(np.mean(dqn_rewards), color=DQN_COLOR,
                 linestyle="--", linewidth=2)
 ax2.set_xlabel("Reward")
 ax2.set_ylabel("Frequency")
-ax2.set_title("Reward Distribution", fontweight="bold")
+ax2.set_title("Reward Distribution (Episodes 1000-2000)", fontweight="bold")
 ax2.legend(fontsize=8)
 ax2.grid(True, alpha=0.3)
 
@@ -142,7 +167,7 @@ plt.savefig(OUTPUT, dpi=150, bbox_inches="tight")
 print(f"\nComparison plot saved: {OUTPUT}")
 plt.show()
 
-# ── Summary table ────────────────────────────────────────────
+# ── Summary table ─────────────────────────────────────────────
 print("\n" + "=" * 60)
 print(f"{'Metric':<30} {'DDQN':>12} {'DQN':>12}")
 print("=" * 60)
@@ -151,14 +176,14 @@ def fmt(data, fn):
     return f"{fn(data):.2f}" if data is not None else "N/A"
 
 metrics = [
-    ("Avg Reward (all)",         ddqn_rewards,   dqn_rewards,   np.mean),
-    ("Avg Reward (last 100)",    ddqn_rewards,   dqn_rewards,   lambda x: np.mean(x[-100:])),
-    ("Avg Survival (last 100)",  ddqn_lengths,   dqn_lengths,   lambda x: np.mean(x[-100:])),
-    ("Avg Speed (last 100)",     ddqn_speeds,    dqn_speeds,    lambda x: np.mean(x[-100:])),
-    ("Avg Lane Dev (last 100)",  ddqn_lane,      dqn_lane,      lambda x: np.mean(x[-100:])),
-    ("Total Collisions",         ddqn_collision, dqn_collision, sum),
-    ("Final Avg Loss",           ddqn_loss,      dqn_loss,      lambda x: np.mean(x[-100:])),
-    ("Final Avg Max Q",          ddqn_q,         dqn_q,         lambda x: np.mean(x[-100:])),
+    ("Avg Reward (ep 1000-2000)", ddqn_rewards,   dqn_rewards,   np.mean),
+    ("Avg Reward (last 100)",     ddqn_rewards,   dqn_rewards,   lambda x: np.mean(x[-100:])),
+    ("Avg Survival (last 100)",   ddqn_lengths,   dqn_lengths,   lambda x: np.mean(x[-100:])),
+    ("Avg Speed (last 100)",      ddqn_speeds,    dqn_speeds,    lambda x: np.mean(x[-100:])),
+    ("Avg Lane Dev (last 100)",   ddqn_lane,      dqn_lane,      lambda x: np.mean(x[-100:])),
+    ("Total Collisions",          ddqn_collision, dqn_collision, sum),
+    ("Final Avg Loss",            ddqn_loss,      dqn_loss,      lambda x: np.mean(x[-100:])),
+    ("Final Avg Max Q",           ddqn_q,         dqn_q,         lambda x: np.mean(x[-100:])),
 ]
 
 for name, d_data, q_data, fn in metrics:
